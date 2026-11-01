@@ -7,8 +7,8 @@ import streamlit as st
 
 
 st.set_page_config(
-    page_title="Dijkstra | En kısa yol",
-    page_icon="◉",
+    page_title="Cisco Packet Tracer · Dijkstra",
+    page_icon="🌐",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -24,46 +24,75 @@ GRAPH = {
     "G": {},
 }
 
-POSITIONS = {
-    "START": (0.0, 1.4), "A": (1.7, 2.5), "B": (3.7, 2.5),
-    "C": (5.7, 2.5), "E": (3.2, 0.8), "D": (5.2, 0.8),
-    "TARGET": (7.8, 1.8), "G": (9.8, 1.8),
+NODE_POSITIONS = {
+    "START": (0.08, 0.53), "A": (0.27, 0.78), "B": (0.47, 0.78),
+    "C": (0.67, 0.78), "E": (0.39, 0.31), "D": (0.59, 0.31),
+    "TARGET": (0.82, 0.53), "G": (0.96, 0.29),
 }
 
 
-def dijkstra(graph, start):
+def build_frames(graph, start):
+    """Return one immutable UI snapshot for each algorithm action."""
     distances = {node: float("inf") for node in graph}
     parents = {node: None for node in graph}
     distances[start] = 0.0
     queue = [(0.0, start)]
-    steps = []
+    visited = set()
+    frames = []
 
+    def snapshot(message, current=None, neighbor=None, action="INIT"):
+        frames.append({
+            "distances": distances.copy(),
+            "parents": parents.copy(),
+            "visited": visited.copy(),
+            "queue": sorted(queue),
+            "current": current,
+            "neighbor": neighbor,
+            "message": message,
+            "action": action,
+        })
+
+    snapshot(f"[SYSTEM] SPF başlatıldı. Kaynak düğüm: {start}")
     while queue:
         distance, node = heapq.heappop(queue)
-        if distance > distances[node]:
+        if node in visited or distance > distances[node]:
+            snapshot(f"[SKIP] Eski kuyruk kaydı atlandı: {node} ({distance:.2f})", node, action="SKIP")
             continue
-        changes, pushed = [], []
+
+        snapshot(f"[PROCESS] Kuyruktan çıkarıldı: {node} ({distance:.2f})", node, action="POLL")
+        visited.add(node)
+        snapshot(f"[VISITED] {node} işlendi olarak işaretlendi.", node, action="VISIT")
+
         for neighbor, weight in graph[node].items():
-            candidate = distance + weight
-            if candidate < distances[neighbor]:
+            snapshot(
+                f"[DISCOVERY] {node} → {neighbor} bağlantısı inceleniyor · maliyet {weight:.2f}",
+                node, neighbor, "EXAMINE",
+            )
+            candidate = distances[node] + weight
+            if neighbor not in visited and candidate < distances[neighbor]:
                 distances[neighbor] = candidate
                 parents[neighbor] = node
                 heapq.heappush(queue, (candidate, neighbor))
-                changes.append(f"{neighbor} · {candidate:.2f}")
-                pushed.append(f"({candidate:.2f}, {neighbor})")
-        steps.append({
-            "Adım": len(steps) + 1,
-            "İşlenen düğüm": f"{node} · {distance:.2f}",
-            "Mesafe güncellemeleri": ", ".join(changes) or "Güncelleme yok",
-            "Kuyruğa eklenenler": ", ".join(pushed) or "—",
-        })
-    return distances, parents, steps
+                snapshot(
+                    f"[RELAXATION] {neighbor} mesafesi {candidate:.2f} olarak güncellendi · ata {node}",
+                    node, neighbor, "UPDATE",
+                )
+            else:
+                old = distances[neighbor]
+                old_label = "∞" if old == float("inf") else f"{old:.2f}"
+                snapshot(
+                    f"[SKIP] {neighbor} için daha kısa mesafe korunuyor ({old_label}).",
+                    node, neighbor, "NO_UPDATE",
+                )
+
+    snapshot("[COMPLETE] Tüm erişilebilir düğümler işlendi.", action="COMPLETE")
+    return frames
 
 
-def get_path(parents, distances, target):
-    if distances[target] == float("inf"):
+def path_to(parents, distances, node):
+    if distances[node] == float("inf"):
         return []
-    path, node = [], target
+    path = []
     while node is not None:
         path.append(node)
         node = parents[node]
@@ -72,93 +101,192 @@ def get_path(parents, distances, target):
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
-:root { --ink:#e8edf7; --muted:#91a0b8; --panel:#111a2b; --line:#22304a; }
-.stApp { background: radial-gradient(ellipse at 15% 0%, #172743 0%, #0b1220 48%, #090f1a 100%); color:var(--ink); }
-html, body, [class*="css"] { font-family:'DM Sans',sans-serif; }
-h1,h2,h3 { font-family:'Space Grotesk',sans-serif !important; letter-spacing:-.035em; }
-h1 { font-size:2.6rem !important; margin-bottom:.15rem !important; }
-section[data-testid="stSidebar"] { background:#0c1422; border-right:1px solid #1c2940; }
-.eyebrow { color:#7dd3fc; text-transform:uppercase; letter-spacing:.16em; font-size:.72rem; font-weight:700; }
-.subtitle { color:#aab6c9; font-size:1.02rem; margin:.2rem 0 1.3rem; }
-.panel { background:linear-gradient(145deg,rgba(20,31,50,.95),rgba(13,22,37,.95)); border:1px solid #24334d; border-radius:18px; padding:1.15rem 1.3rem; }
-.route { font-family:'Space Grotesk',sans-serif; color:#dce8fa; font-size:1.08rem; font-weight:600; }
-div[data-testid="stMetric"] { background:rgba(17,26,43,.88); border:1px solid #263550; padding:16px 18px; border-radius:15px; }
-div[data-testid="stMetricLabel"] { color:#91a0b8; }
-div[data-testid="stMetricValue"] { color:#f3f7ff; font-family:'Space Grotesk',sans-serif; }
-div[data-testid="stDataFrame"], div[data-testid="stTable"] { border:1px solid #263550; border-radius:12px; overflow:hidden; }
-.block-container { padding-top:2.5rem; padding-bottom:3rem; max-width:1450px; }
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+:root { --cyan:#00bceb; --bg:#060b13; --panel:#0f172a; --border:#1e293b; --green:#10b981; --amber:#fbbf24; --rose:#f43f5e; }
+.stApp { background:radial-gradient(ellipse at 50% -25%,#12243a 0%,#080e18 58%,#060b13 100%); color:#dbe5f1; }
+html,body,[class*="css"] { font-family:'Inter',sans-serif; }
+h1,h2,h3 { letter-spacing:-.035em; }
+section[data-testid="stSidebar"] { background:rgba(10,17,30,.96); border-right:1px solid var(--border); }
+.block-container { padding-top:1.35rem; padding-bottom:2rem; max-width:1800px; }
+.topbar { display:flex; justify-content:space-between; align-items:center; padding:.8rem 1rem; margin-bottom:1.25rem; background:rgba(15,23,42,.78); border:1px solid var(--border); border-radius:12px; }
+.brand { color:var(--cyan); font-weight:700; letter-spacing:.11em; font-size:.95rem; }
+.mono,.eyebrow { font-family:'Fira Code',monospace; }
+.eyebrow { color:#7d91a9; font-size:.69rem; letter-spacing:.12em; }
+.status { font:600 .7rem 'Fira Code',monospace; color:#34d399; padding:.42rem .65rem; background:#071a19; border:1px solid #145344; border-radius:6px; }
+.panel { background:linear-gradient(145deg,rgba(15,23,42,.96),rgba(9,16,28,.96)); border:1px solid #1e293b; border-radius:12px; padding:.85rem 1rem; }
+.terminal { background:#070c14; border:1px solid #1e293b; border-radius:9px; padding:.8rem; color:#cbd5e1; font: .75rem 'Fira Code',monospace; min-height:4rem; }
+div[data-testid="stMetric"] { background:rgba(15,23,42,.85); border:1px solid #1e293b; border-radius:10px; padding:12px 15px; }
+div[data-testid="stMetricLabel"] { color:#94a3b8; font-size:.75rem; }
+div[data-testid="stMetricValue"] { color:#e2e8f0; font-family:'Fira Code',monospace; }
+div[data-testid="stDataFrame"] { border:1px solid #1e293b; border-radius:9px; overflow:hidden; }
+div.stButton > button { border-radius:7px; font-family:'Fira Code',monospace; font-weight:600; }
+div[data-testid="stSelectbox"] label, div[data-testid="stSlider"] label { font-family:'Fira Code',monospace; color:#9aaabd; font-size:.75rem; }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="eyebrow">GRAPH ALGORITHM · INTERACTIVE TRACE</div>', unsafe_allow_html=True)
-st.title("Dijkstra görselleştiricisi")
-st.markdown('<div class="subtitle">Bir başlangıç düğümünden en kısa yolları keşfedin.</div>', unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("### Kontroller")
-    st.caption("Yönlü grafikte başlangıç ve hedefi seçin.")
-    start_node = st.selectbox("Başlangıç", list(GRAPH), index=0)
-    target_node = st.selectbox("Hedef", list(GRAPH), index=list(GRAPH).index("TARGET"))
+    st.markdown("### `≋`  ROTA KONTROLÜ")
+    st.caption("DIJKSTRA · SHORTEST PATH FIRST")
+    start = st.selectbox("Başlangıç · SRC", list(GRAPH), index=0, key="start")
+    target = st.selectbox("Hedef · DST", list(GRAPH), index=list(GRAPH).index("TARGET"), key="target")
+    st.caption("Adım modu, algoritma olayları arasında ilerler. ‘Tümünü çalıştır’ kalan adımları tek seferde tamamlar.")
     st.divider()
-    st.markdown("**Renk anahtarı**")
-    st.markdown("🟢 Başlangıç&nbsp;&nbsp; 🔴 Hedef<br>🟠 En kısa rota&nbsp;&nbsp; 🔵 Diğer düğümler", unsafe_allow_html=True)
-    st.caption("Kenar ağırlıkları yönlüdür; oklar geçiş yönünü gösterir.")
 
-distances, parents, steps = dijkstra(GRAPH, start_node)
-path = get_path(parents, distances, target_node)
-path_edges = set(zip(path, path[1:]))
+    state_key = (start, target)
+    if st.session_state.get("state_key") != state_key:
+        st.session_state.state_key = state_key
+        st.session_state.frame_index = 0
+        st.session_state.log_cleared = False
+        st.session_state.traffic = False
 
-distance_value = distances[target_node]
-distance_label = "∞" if distance_value == float("inf") else f"{distance_value:.2f}"
-route_label = " → ".join(path) if path else "Hedefe ulaşılamıyor"
-reachable = sum(value != float("inf") for value in distances.values())
+    frames = build_frames(GRAPH, start)
+    last = len(frames) - 1
+    index = st.session_state.get("frame_index", 0)
+    index = max(0, min(index, last))
 
-m1, m2, m3 = st.columns(3)
-m1.metric("En kısa mesafe", distance_label)
-m2.metric("Rotadaki düğüm", f"{len(path)}" if path else "—")
-m3.metric("Ulaşılabilen düğüm", f"{reachable} / {len(GRAPH)}")
+    c1, c2, c3 = st.columns(3)
+    if c1.button("▶ Tümünü çalıştır", use_container_width=True, disabled=index == last):
+        st.session_state.frame_index = last
+        st.rerun()
+    if c2.button("▸ Adım", use_container_width=True, disabled=index == last):
+        st.session_state.frame_index = min(index + 1, last)
+        st.rerun()
+    if c3.button("↺ Sıfırla", use_container_width=True):
+        st.session_state.frame_index = 0
+        st.session_state.traffic = False
+        st.session_state.log_cleared = False
+        st.rerun()
 
-st.markdown("#### En kısa rota")
-st.markdown(f'<div class="panel"><div class="route">{route_label}</div></div>', unsafe_allow_html=True)
-st.markdown("")
+    current_frame = frames[index]
+    completed = index == last
+    if st.button("➤  En kısa rotada paket trafiği", use_container_width=True, disabled=not completed):
+        st.session_state.traffic = True
+        st.rerun()
+    if st.session_state.get("traffic"):
+        st.success("Paket rotası etkin · " + " → ".join(path_to(current_frame["parents"], current_frame["distances"], target)))
+    st.divider()
 
-left, right = st.columns([1.65, 1], gap="large")
-with left:
-    st.markdown("#### Ağ haritası")
-    fig, ax = plt.subplots(figsize=(11, 5.8), facecolor="#111a2b")
-    ax.set_facecolor("#111a2b")
+    st.markdown("#### ÖNCELİK KUYRUĞU · MIN-HEAP")
+    queue = current_frame["queue"]
+    if queue:
+        for distance, node in queue:
+            st.markdown(f"`{node}`　<span style='color:#fbbf24;font-family:Fira Code'>{distance:.2f}</span>", unsafe_allow_html=True)
+    else:
+        st.caption("Kuyruk boş.")
+
+    st.markdown("#### YÖNLENDİRME TABLOSU")
+    routing_rows = []
+    for node in GRAPH:
+        distance = current_frame["distances"][node]
+        routing_rows.append({
+            "Düğüm": node,
+            "Mesafe": "∞" if distance == float("inf") else f"{distance:.2f}",
+            "Ata": current_frame["parents"][node] or "—",
+            "Durum": "KAYNAK" if node == start else "İŞLENDİ" if node in current_frame["visited"] else "KUYRUKTA" if distance < float("inf") else "BEKLEMEDE",
+        })
+    st.dataframe(pd.DataFrame(routing_rows), hide_index=True, use_container_width=True, height=280)
+
+
+frame = frames[st.session_state.frame_index]
+distances, parents = frame["distances"], frame["parents"]
+route = path_to(parents, distances, target) if st.session_state.frame_index == last else []
+route_edges = set(zip(route, route[1:]))
+
+st.markdown(f"<div class='topbar'><div><div class='brand'>◈ CISCO PACKET TRACER <span style='font-size:.65rem;background:#062230;padding:.2rem .4rem;border-radius:4px'>SPF SIMULATOR</span></div><div class='eyebrow' style='margin-top:.35rem'>NETWORK ROUTING · DIJKSTRA SIMULATION</div></div><div class='status'>● LINK STATUS: ONLINE</div></div>", unsafe_allow_html=True)
+
+col_graph, col_stats = st.columns([2.2, 1], gap="large")
+with col_graph:
+    st.markdown("#### NETWORK TOPOLOGY")
+    st.caption("Oklar bağlantı yönünü gösterir · Ağırlıklar kenar maliyetidir")
     network = nx.DiGraph()
     for source, neighbors in GRAPH.items():
         for dest, weight in neighbors.items():
             network.add_edge(source, dest, weight=weight)
-    colors = ["#35d39a" if n == start_node else "#fb7185" if n == target_node else "#f6b94a" if n in path else "#42618e" for n in network.nodes]
-    edge_colors = ["#f6b94a" if edge in path_edges else "#3b4b65" for edge in network.edges]
-    widths = [3.1 if edge in path_edges else 1.35 for edge in network.edges]
-    nx.draw_networkx_nodes(network, POSITIONS, node_color=colors, node_size=1320, linewidths=2, edgecolors="#dce8fa", ax=ax)
-    nx.draw_networkx_edges(network, POSITIONS, edge_color=edge_colors, width=widths, arrows=True, arrowstyle="-|>", arrowsize=19, connectionstyle="arc3,rad=0.045", min_source_margin=22, min_target_margin=24, ax=ax)
-    nx.draw_networkx_labels(network, POSITIONS, font_size=10, font_weight="bold", font_color="#08111e", ax=ax)
-    labels = {(u, v): f"{w:g}" for u, v, w in network.edges(data="weight")}
-    nx.draw_networkx_edge_labels(network, POSITIONS, edge_labels=labels, font_size=9, font_color="#d8e2f0", rotate=False, label_pos=.52, bbox={"alpha": .9, "color": "#111a2b", "pad": 2, "edgecolor": "none"}, ax=ax)
-    ax.margins(.12)
+
+    active_node, active_neighbor = frame["current"], frame["neighbor"]
+    colors = []
+    for node in network.nodes:
+        if node == start:
+            colors.append("#047857")
+        elif node == target:
+            colors.append("#9f1239")
+        elif node == active_node or node == active_neighbor:
+            colors.append("#92400e")
+        elif node in route:
+            colors.append("#075985")
+        elif node in frame["visited"]:
+            colors.append("#15253a")
+        else:
+            colors.append("#172033")
+    edge_colors = []
+    edge_widths = []
+    for edge in network.edges:
+        if edge in route_edges:
+            edge_colors.append("#00bceb")
+            edge_widths.append(3.5)
+        elif edge == (active_node, active_neighbor):
+            edge_colors.append("#fbbf24")
+            edge_widths.append(3)
+        else:
+            edge_colors.append("#334155")
+            edge_widths.append(1.4)
+
+    fig, ax = plt.subplots(figsize=(12.5, 6.8), facecolor="#080e18")
+    ax.set_facecolor("#080e18")
+    nx.draw_networkx_nodes(network, NODE_POSITIONS, node_color=colors, node_size=1450, linewidths=1.8, edgecolors="#40516a", ax=ax)
+    nx.draw_networkx_edges(network, NODE_POSITIONS, edge_color=edge_colors, width=edge_widths, arrows=True, arrowstyle="-|>", arrowsize=20, connectionstyle="arc3,rad=0.035", min_source_margin=24, min_target_margin=28, ax=ax)
+    nx.draw_networkx_labels(network, NODE_POSITIONS, font_size=9, font_weight="bold", font_color="#f1f5f9", ax=ax)
+    weights = {(u, v): f"{w:.2f}" for u, v, w in network.edges(data="weight")}
+    nx.draw_networkx_edge_labels(network, NODE_POSITIONS, edge_labels=weights, font_size=8, font_color="#a8bbd0", rotate=False, bbox={"alpha": .95, "color": "#080e18", "pad": 2, "edgecolor": "#1e293b"}, ax=ax)
+    ax.set_xlim(-.04, 1.04)
+    ax.set_ylim(.05, 1.0)
     ax.axis("off")
-    fig.tight_layout(pad=1)
+    fig.tight_layout(pad=.3)
     st.pyplot(fig, use_container_width=True)
     plt.close(fig)
+    st.markdown("🟢 Kaynak　 🔴 Hedef　 🟠 Aktif düğüm/bağlantı　 🔹 En kısa rota", unsafe_allow_html=True)
 
-with right:
-    st.markdown("#### Mesafe tablosu")
-    summary = []
-    for node in sorted(GRAPH):
-        node_path = get_path(parents, distances, node)
-        summary.append({
-            "Düğüm": node,
-            "Mesafe": "∞" if distances[node] == float("inf") else f"{distances[node]:.2f}",
-            "Rota": " → ".join(node_path) if node_path else "—",
-        })
-    st.dataframe(pd.DataFrame(summary), hide_index=True, use_container_width=True, height=365)
-    st.caption("∞: başlangıç düğümünden ulaşılamıyor")
+with col_stats:
+    st.markdown("#### ROUTE SUMMARY")
+    distance = distances[target]
+    st.metric("HEDEF MALİYETİ", "∞" if distance == float("inf") else f"{distance:.2f}")
+    st.metric("İŞLENEN DÜĞÜM", frame["current"] or "—")
+    st.metric("KUYRUKTA", len(frame["queue"]))
+    st.markdown("#### EN KISA ROTA")
+    if route:
+        st.markdown(f"<div class='panel' style='color:#00bceb;font-family:Fira Code,monospace'>{' &nbsp;›&nbsp; '.join(route)}</div>", unsafe_allow_html=True)
+    elif completed:
+        st.markdown("<div class='panel'>Hedefe ulaşılamıyor.</div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<div class='panel' style='color:#94a3b8'>Simülasyon tamamlandığında rota gösterilir.</div>", unsafe_allow_html=True)
+    st.markdown("#### RENK ANAHTARI")
+    st.markdown("<div class='panel'>🟢 Başlangıç düğümü<br>🔴 Hedef düğüm<br>🟠 Aktif incelenen bağlantı<br>🔹 Tamamlanan en kısa rota</div>", unsafe_allow_html=True)
 
-st.markdown("#### Algoritmanın izi")
-st.caption("Düğümler, öncelik kuyruğundan en küçük geçici mesafeye göre çıkarılır.")
-st.dataframe(pd.DataFrame(steps), hide_index=True, use_container_width=True)
+st.markdown("")
+trace_col, console_col = st.columns([1.25, 1], gap="large")
+with trace_col:
+    st.markdown("#### ALGORİTMA ADIMLARI")
+    st.progress((st.session_state.frame_index + 1) / len(frames), text=f"Olay {st.session_state.frame_index + 1} / {len(frames)}")
+    st.markdown(f"<div class='terminal'>{frame['message']}</div>", unsafe_allow_html=True)
+with console_col:
+    st.markdown("#### CISCO IOS CONSOLE LOG")
+    st.caption("Son algoritma olayları")
+    if st.button("⌫ Konsolu temizle", key="clear_log"):
+        st.session_state.log_cleared = True
+    if st.session_state.get("log_cleared"):
+        st.markdown("<div class='terminal'>Konsol görünümü temizlendi. İlerleme sürdükçe yeni olaylar görünür.</div>", unsafe_allow_html=True)
+    else:
+        logs = [f['message'] for f in frames[:st.session_state.frame_index + 1]][-7:]
+        st.markdown("<div class='terminal'>" + "<br>".join(logs) + "</div>", unsafe_allow_html=True)
+
+st.markdown("#### TÜM DÜĞÜMLERE EN KISA MESAFELER")
+summary = []
+for node in sorted(GRAPH):
+    node_path = path_to(parents, distances, node)
+    summary.append({
+        "Düğüm": node,
+        "Mesafe": "∞" if distances[node] == float("inf") else f"{distances[node]:.2f}",
+        "Rota": " → ".join(node_path) if node_path else "Ulaşılamaz",
+    })
+st.dataframe(pd.DataFrame(summary), hide_index=True, use_container_width=True)
